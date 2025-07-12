@@ -1,0 +1,21 @@
+{
+  "name": "Rangers Sale Shop",
+  "short_name": "Rangers Sale Shop",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffbf6",
+  "theme_color": "#fdf2d9",
+  "icons": [
+    {
+      "src": "/appLogo.png",
+      "sizes": "300x300",
+      "type": "image/png"
+    },
+    {
+      "src": "/appLogo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+
+  ]
+}
