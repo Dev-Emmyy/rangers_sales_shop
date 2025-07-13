@@ -1,7 +1,4 @@
 "use client";
-import React, { useState, useRef, Suspense } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei';
 import {
   Box,
   Button,
@@ -23,10 +20,55 @@ import {
   Male,
   Female
 } from '@mui/icons-material';
+import React, { useState, useRef, Suspense, useMemo, } from 'react';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+// Note: This component requires @mui/material and @mui/icons-material
+// Install with: npm install @mui/material @mui/icons-material
+
+// AGGRESSIVE PRELOADING - This is the speed fix
+const modelCache = new Map();
+const modelPaths = [
+  "/Rangers_FC_Jersey_Red.glb",
+  "/Rangers_FC_Jersey_White.glb"
+];
+
+// Preload models immediately
+const preloadModels = async () => {
+  const loader = new GLTFLoader();
+  
+  const promises = modelPaths.map(async (path) => {
+    if (!modelCache.has(path)) {
+      try {
+        const gltf = await loader.loadAsync(path);
+        modelCache.set(path, gltf.scene.clone());
+      } catch (error) {
+        console.error(`Failed to preload ${path}:`, error);
+      }
+    }
+  });
+  
+  await Promise.all(promises);
+};
+
+// Start preloading immediately
+preloadModels();
 
 function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
-  const { scene } = useGLTF(glbPath);
   const meshRef = useRef();
+  
+  // Use cached model if available - THIS IS THE SPEED SECRET
+  const scene = useMemo(() => {
+    if (modelCache.has(glbPath)) {
+      return modelCache.get(glbPath).clone();
+    }
+    
+    // Fallback to regular loading if not cached
+    const gltf = useLoader(GLTFLoader, glbPath);
+    modelCache.set(glbPath, gltf.scene.clone());
+    return gltf.scene;
+  }, [glbPath]);
   
   useFrame((state) => {
     if (meshRef.current) {
@@ -93,7 +135,7 @@ export default function JerseyCarousel() {
   return (
     <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
       <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
-        {/* 3D Model Section - Always comes first in DOM but ordered differently */}
+        {/* 3D Model Section - SPEED OPTIMIZED */}
         <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
           <Box sx={{ 
             position: 'relative', 
@@ -107,12 +149,15 @@ export default function JerseyCarousel() {
               width: '100%',
               height: '100%',
               margin: '0 auto'
-            }}>
+            }}
+            >
               <PerspectiveCamera makeDefault position={[0, 0, 5]} />
               <OrbitControls 
                 enableZoom={true} 
                 enablePan={false} 
                 enableRotate={!isMobile}
+                dampingFactor={0.1}
+                enableDamping={true}
               />
               <ambientLight intensity={0.6} />
               <directionalLight position={[10, 10, 5]} intensity={1.2} />
@@ -166,7 +211,7 @@ export default function JerseyCarousel() {
           </Box>
         </Grid>
 
-        {/* Product Details Section - Comes after 3D viewer in DOM */}
+        {/* Product Details Section - UNCHANGED */}
         <Grid item xs={12} md={6} order={isMobile ? 1 : 0}>
           <Box sx={{ 
             maxWidth: 500, 
