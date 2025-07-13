@@ -135,6 +135,62 @@ function JerseyFallback() {
   );
 }
 
+// Custom hook for swipe/drag functionality
+const useSwipeGesture = (onSwipeLeft, onSwipeRight, threshold = 50) => {
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleStart = (clientX) => {
+    setStartX(clientX);
+    setCurrentX(clientX);
+    setIsDragging(true);
+  };
+
+  const handleMove = (clientX) => {
+    if (!isDragging) return;
+    setCurrentX(clientX);
+  };
+
+  const handleEnd = () => {
+    if (!isDragging) return;
+    
+    const deltaX = currentX - startX;
+    
+    if (Math.abs(deltaX) > threshold) {
+      if (deltaX > 0) {
+        onSwipeRight();
+      } else {
+        onSwipeLeft();
+      }
+    }
+    
+    setIsDragging(false);
+    setStartX(0);
+    setCurrentX(0);
+  };
+
+  const mouseHandlers = {
+    onMouseDown: (e) => handleStart(e.clientX),
+    onMouseMove: (e) => handleMove(e.clientX),
+    onMouseUp: handleEnd,
+    onMouseLeave: handleEnd,
+  };
+
+  const touchHandlers = {
+    onTouchStart: (e) => handleStart(e.touches[0].clientX),
+    onTouchMove: (e) => handleMove(e.touches[0].clientX),
+    onTouchEnd: handleEnd,
+  };
+
+  return {
+    ...mouseHandlers,
+    ...touchHandlers,
+    isDragging,
+    dragProgress: isDragging ? (currentX - startX) / threshold : 0
+  };
+};
+
 const jerseyData = [
   {
     id: 1,
@@ -185,10 +241,13 @@ export default function JerseyCarousel() {
     setCurrentIndex((prev) => (prev - 1 + jerseyData.length) % jerseyData.length);
   };
 
+  // Swipe gesture handlers
+  const swipeHandlers = useSwipeGesture(nextJersey, prevJersey, 50);
+
   return (
     <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
       <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
-        {/* 3D Model Section - PERFORMANCE OPTIMIZED */}
+        {/* 3D Model Section - PERFORMANCE OPTIMIZED WITH SWIPE */}
         <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
           <Box sx={{ 
             position: 'relative', 
@@ -198,8 +257,14 @@ export default function JerseyCarousel() {
             justifyContent: 'center',
             alignItems: 'center',
             bgcolor: 'background.default',
-            borderRadius: 2
-          }}>
+            borderRadius: 2,
+            cursor: swipeHandlers.isDragging ? 'grabbing' : 'grab',
+            userSelect: 'none',
+            touchAction: 'pan-y', // Allow vertical scrolling but prevent horizontal
+            overflow: 'hidden'
+          }}
+          {...swipeHandlers}
+          >
             {!modelsLoaded ? (
               <Box sx={{ 
                 display: 'flex', 
@@ -220,16 +285,24 @@ export default function JerseyCarousel() {
                 style={{
                   width: '100%',
                   height: '100%',
-                  margin: '0 auto'
+                  margin: '0 auto',
+                  transform: swipeHandlers.isDragging ? 
+                    `translateX(${Math.min(Math.max(swipeHandlers.dragProgress * 20, -20), 20)}px)` : 
+                    'none',
+                  transition: swipeHandlers.isDragging ? 'none' : 'transform 0.3s ease'
                 }}
                 performance={{ min: 0.1, max: 1 }}
                 dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
+                onCreated={({ gl }) => {
+                  // Prevent context menu on right click
+                  gl.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+                }}
               >
                 <PerspectiveCamera makeDefault position={[0, 0, 5]} />
                 <OrbitControls 
-                  enableZoom={!isMobile} // Disable zoom on mobile for better performance
+                  enableZoom={!isMobile && !swipeHandlers.isDragging} 
                   enablePan={false} 
-                  enableRotate={!isMobile}
+                  enableRotate={!isMobile && !swipeHandlers.isDragging}
                   dampingFactor={0.05}
                   enableDamping={true}
                   maxPolarAngle={Math.PI / 2}
@@ -249,6 +322,27 @@ export default function JerseyCarousel() {
                   />
                 </Suspense>
               </Canvas>
+            )}
+            
+            {/* Swipe instruction overlay */}
+            {modelsLoaded && (
+              <Box sx={{
+                position: 'absolute',
+                bottom: 16,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                color: 'white',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                fontSize: '0.75rem',
+                pointerEvents: 'none',
+                opacity: 0.8,
+                zIndex: 10
+              }}>
+                {isMobile ? 'Swipe left/right to change jerseys' : 'Drag left/right to change jerseys'}
+              </Box>
             )}
             
             {modelsLoaded && (
