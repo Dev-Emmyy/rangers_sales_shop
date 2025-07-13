@@ -20,7 +20,7 @@ import {
   Male,
   Female
 } from '@mui/icons-material';
-import React, { useState, useRef, Suspense, useMemo, } from 'react';
+import React, { useState, useRef, Suspense, useMemo, useEffect } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
@@ -34,8 +34,11 @@ const modelPaths = [
   "/Rangers_FC_Jersey_White.glb"
 ];
 
-// Preload models immediately
+// Preload models immediately - ONLY ON CLIENT SIDE
 const preloadModels = async () => {
+  // Only run on client side
+  if (typeof window === 'undefined') return;
+  
   const loader = new GLTFLoader();
   
   const promises = modelPaths.map(async (path) => {
@@ -51,9 +54,6 @@ const preloadModels = async () => {
   
   await Promise.all(promises);
 };
-
-// Start preloading immediately
-preloadModels();
 
 function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
   const meshRef = useRef();
@@ -121,6 +121,11 @@ export default function JerseyCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedGender, setSelectedGender] = useState('male');
   const [selectedSize, setSelectedSize] = useState('M');
+
+  // Start preloading on client side
+  useEffect(() => {
+    preloadModels();
+  }, []);
 
   const currentJersey = jerseyData[currentIndex];
 
