@@ -1,5 +1,4 @@
-'use client';
-import React, { useState, useRef, Suspense, useMemo, useEffect } from 'react';
+"use client";
 import {
   Box,
   Button,
@@ -14,8 +13,7 @@ import {
   IconButton,
   useMediaQuery,
   useTheme,
-  CircularProgress,
-  Skeleton
+  CircularProgress
 } from '@mui/material';
 import {
   ArrowBackIos,
@@ -23,23 +21,12 @@ import {
   Male,
   Female
 } from '@mui/icons-material';
-import dynamic from 'next/dynamic';
+import React, { useState, useRef, Suspense, useMemo, useEffect } from 'react';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 
-// LAZY LOAD 3D COMPONENTS FOR MOBILE PERFORMANCE
-const Canvas = dynamic(() => import('@react-three/fiber').then(mod => ({ default: mod.Canvas })), {
-  ssr: false,
-  loading: () => <MobileFallback />
-});
-
-const OrbitControls = dynamic(() => import('@react-three/drei').then(mod => ({ default: mod.OrbitControls })), {
-  ssr: false
-});
-
-const PerspectiveCamera = dynamic(() => import('@react-three/drei').then(mod => ({ default: mod.PerspectiveCamera })), {
-  ssr: false
-});
-
-// MOBILE-FIRST OPTIMIZATION SYSTEM
+// AGGRESSIVE PRELOADING SYSTEM
 const modelCache = new Map();
 const loadingPromises = new Map();
 const modelPaths = [
@@ -47,25 +34,10 @@ const modelPaths = [
   "/Rangers_FC_Jersey_White.glb"
 ];
 
-// Mobile-optimized preloading with connection-aware loading
-const preloadModels = async (onProgress, isMobile = false) => {
+// Preload models with better error handling and progress tracking
+const preloadModels = async (onProgress) => {
   if (typeof window === 'undefined') return;
   
-  // Check connection speed (mobile optimization)
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const slowConnection = connection && (connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g');
-  
-  if (isMobile && slowConnection) {
-    console.log('Slow connection detected, loading models sequentially');
-    // Load models one by one on slow connections
-    for (let i = 0; i < modelPaths.length; i++) {
-      await loadSingleModel(modelPaths[i], onProgress, i, modelPaths.length);
-    }
-    return;
-  }
-  
-  // Normal parallel loading for fast connections
-  const GLTFLoader = (await import('three/examples/jsm/loaders/GLTFLoader')).GLTFLoader;
   const loader = new GLTFLoader();
   let loadedCount = 0;
   
@@ -82,31 +54,17 @@ const preloadModels = async (onProgress, isMobile = false) => {
     
     const promise = loader.loadAsync(path).then((gltf) => {
       const scene = gltf.scene.clone();
-      
-      // AGGRESSIVE MOBILE OPTIMIZATION
+      // Optimize the model
       scene.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = false;
           child.receiveShadow = false;
-          child.frustumCulled = true;
-          
           // Reduce geometry complexity on mobile
-          if (child.geometry && isMobile) {
+          if (child.geometry) {
             child.geometry.computeBoundingSphere();
-            // Reduce vertex count if too complex
-            if (child.geometry.attributes.position.count > 10000) {
-              console.warn('Complex geometry detected, consider using LOD models');
-            }
-          }
-          
-          // Optimize materials for mobile
-          if (child.material) {
-            child.material.envMapIntensity = isMobile ? 0.3 : 0.5;
-            child.material.needsUpdate = true;
           }
         }
       });
-      
       modelCache.set(path, scene);
       loadedCount++;
       onProgress?.(loadedCount / modelPaths.length);
@@ -115,7 +73,6 @@ const preloadModels = async (onProgress, isMobile = false) => {
       console.error(`Failed to preload ${path}:`, error);
       loadedCount++;
       onProgress?.(loadedCount / modelPaths.length);
-      return null;
     });
     
     loadingPromises.set(path, promise);
@@ -125,84 +82,28 @@ const preloadModels = async (onProgress, isMobile = false) => {
   await Promise.all(promises);
 };
 
-// Single model loading for slow connections
-const loadSingleModel = async (path, onProgress, index, total) => {
-  if (modelCache.has(path)) {
-    onProgress?.((index + 1) / total);
-    return;
-  }
-  
-  const GLTFLoader = (await import('three/examples/jsm/loaders/GLTFLoader')).GLTFLoader;
-  const loader = new GLTFLoader();
-  
-  try {
-    const gltf = await loader.loadAsync(path);
-    const scene = gltf.scene.clone();
-    
-    // Mobile optimization
-    scene.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = false;
-        child.receiveShadow = false;
-        if (child.material) {
-          child.material.envMapIntensity = 0.2;
-        }
-      }
-    });
-    
-    modelCache.set(path, scene);
-    onProgress?.((index + 1) / total);
-  } catch (error) {
-    console.error(`Failed to load ${path}:`, error);
-    onProgress?.((index + 1) / total);
-  }
-};
-
-// MOBILE FALLBACK COMPONENT
-function MobileFallback() {
-  return (
-    <Box sx={{ 
-      height: '100%', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      gap: 2,
-      bgcolor: 'grey.100',
-      borderRadius: 2
-    }}>
-      <Skeleton variant="rectangular" width="80%" height="60%" animation="wave" />
-      <Typography variant="body2" color="text.secondary">
-        Loading 3D Model...
-      </Typography>
-    </Box>
-  );
-}
-
-// OPTIMIZED 3D JERSEY COMPONENT
-function JerseyModel({ glbPath, position, rotation, scale = 1, isMobile }) {
+function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
   const meshRef = useRef();
   
+  // Use cached model with fallback
   const scene = useMemo(() => {
     if (modelCache.has(glbPath)) {
       return modelCache.get(glbPath).clone();
     }
-    return null;
+    
+    // If not cached, load normally (should be rare after preloading)
+    const gltf = useLoader(GLTFLoader, glbPath);
+    const clonedScene = gltf.scene.clone();
+    modelCache.set(glbPath, clonedScene);
+    return clonedScene;
   }, [glbPath]);
   
-  // Mobile-optimized animation
-  const useFrame = React.useMemo(() => {
-    if (typeof window === 'undefined') return () => {};
-    return require('@react-three/fiber').useFrame;
-  }, []);
-  
+  // Smoother animation with frame rate optimization
   useFrame((state, delta) => {
-    if (meshRef.current && !isMobile) {
-      meshRef.current.rotation.y += delta * 0.1; // Slower rotation for mobile
+    if (meshRef.current) {
+      meshRef.current.rotation.y += delta * 0.3; // Use delta for consistent speed
     }
   });
-
-  if (!scene) return null;
 
   return (
     <primitive 
@@ -215,23 +116,39 @@ function JerseyModel({ glbPath, position, rotation, scale = 1, isMobile }) {
   );
 }
 
-// MAIN COMPONENT
+// Better loading fallback
+function JerseyFallback() {
+  return (
+    <Box sx={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      height: '100%',
+      gap: 2
+    }}>
+      <CircularProgress size={40} />
+      <Typography variant="body2" color="text.secondary">
+        Loading 3D Model...
+      </Typography>
+    </Box>
+  );
+}
+
 const jerseyData = [
   {
     id: 1,
     name: "Rangers FC Home Jersey",
     price: 35000,
     glbPath: "/Rangers_FC_Jersey_Red.glb",
-    description: "Official match jersey with breathable fabric technology",
-    image: "/jersey-red-fallback.jpg" // Fallback image
+    description: "Official match jersey with breathable fabric technology"
   },
   {
     id: 2,
     name: "Rangers FC Away Jersey",
     price: 38000,
     glbPath: "/Rangers_FC_Jersey_White.glb",
-    description: "High-performance away jersey with moisture control",
-    image: "/jersey-white-fallback.jpg" // Fallback image
+    description: "High-performance away jersey with moisture control"
   }
 ];
 
@@ -240,31 +157,23 @@ const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 export default function JerseyCarousel() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const isVerySmall = useMediaQuery(theme.breakpoints.down('sm'));
-  
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedGender, setSelectedGender] = useState('male');
   const [selectedSize, setSelectedSize] = useState('M');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [use3D, setUse3D] = useState(false);
-  const [showFallback, setShowFallback] = useState(isMobile);
 
-  // SMART LOADING STRATEGY
+  // Start preloading immediately with progress tracking
   useEffect(() => {
-    const initializeModels = async () => {
-      // Only load 3D on desktop or when user explicitly requests it
-      if (!isMobile || use3D) {
-        setShowFallback(false);
-        await preloadModels((progress) => {
-          setLoadingProgress(progress);
-        }, isMobile);
-        setModelsLoaded(true);
-      }
+    const loadModels = async () => {
+      await preloadModels((progress) => {
+        setLoadingProgress(progress);
+      });
+      setModelsLoaded(true);
     };
     
-    initializeModels();
-  }, [isMobile, use3D]);
+    loadModels();
+  }, []);
 
   const currentJersey = jerseyData[currentIndex];
 
@@ -276,76 +185,33 @@ export default function JerseyCarousel() {
     setCurrentIndex((prev) => (prev - 1 + jerseyData.length) % jerseyData.length);
   };
 
-  const enable3D = () => {
-    setUse3D(true);
-  };
-
   return (
-    <Container maxWidth="xl" sx={{ py: isVerySmall ? 2 : 4 }}>
-      <Grid container spacing={isVerySmall ? 2 : 4} alignItems="center">
-        {/* 3D Model / Image Section */}
-        <Grid item xs={12} md={6}>
+    <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
+      <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
+        {/* 3D Model Section - PERFORMANCE OPTIMIZED */}
+        <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
           <Box sx={{ 
             position: 'relative', 
-            height: isVerySmall ? 300 : isMobile ? 400 : 600,
+            height: isMobile ? 400 : 600,
             width: '100%',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            bgcolor: 'grey.50',
-            borderRadius: 2,
-            overflow: 'hidden'
+            bgcolor: 'background.default',
+            borderRadius: 2
           }}>
-            {/* MOBILE FALLBACK IMAGE */}
-            {showFallback ? (
-              <Box sx={{ 
-                width: '100%', 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2
-              }}>
-                <Box 
-                  component="img"
-                  src={currentJersey.image}
-                  alt={currentJersey.name}
-                  sx={{ 
-                    width: '80%', 
-                    height: '60%', 
-                    objectFit: 'contain',
-                    filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.1))'
-                  }}
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                  }}
-                />
-                <Button 
-                  variant="contained" 
-                  onClick={enable3D}
-                  size="small"
-                  sx={{ mt: 2 }}
-                >
-                  View in 3D
-                </Button>
-              </Box>
-            ) : !modelsLoaded ? (
+            {!modelsLoaded ? (
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: 'column', 
                 alignItems: 'center',
                 gap: 2
               }}>
-                <CircularProgress 
-                  variant="determinate" 
-                  value={loadingProgress * 100} 
-                  size={isVerySmall ? 40 : 60} 
-                />
-                <Typography variant={isVerySmall ? "body2" : "h6"} color="text.secondary">
+                <CircularProgress variant="determinate" value={loadingProgress * 100} size={60} />
+                <Typography variant="h6" color="text.secondary">
                   Loading 3D Models...
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="body2" color="text.secondary">
                   {Math.round(loadingProgress * 100)}% complete
                 </Typography>
               </Box>
@@ -356,12 +222,12 @@ export default function JerseyCarousel() {
                   height: '100%',
                   margin: '0 auto'
                 }}
-                performance={{ min: 0.2, max: isMobile ? 0.5 : 1 }}
-                dpr={isMobile ? 1 : 2}
+                performance={{ min: 0.1, max: 1 }}
+                dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
               >
                 <PerspectiveCamera makeDefault position={[0, 0, 5]} />
                 <OrbitControls 
-                  enableZoom={!isMobile}
+                  enableZoom={!isMobile} // Disable zoom on mobile for better performance
                   enablePan={false} 
                   enableRotate={!isMobile}
                   dampingFactor={0.05}
@@ -370,78 +236,81 @@ export default function JerseyCarousel() {
                   minPolarAngle={Math.PI / 2}
                 />
                 
-                {/* MOBILE-OPTIMIZED LIGHTING */}
-                <ambientLight intensity={isMobile ? 0.7 : 0.5} />
-                <directionalLight position={[10, 10, 5]} intensity={isMobile ? 0.5 : 0.8} />
+                {/* Optimized lighting */}
+                <ambientLight intensity={0.4} />
+                <directionalLight position={[5, 10, 5]} intensity={0.8} />
                 
                 <Suspense fallback={null}>
                   <JerseyModel 
                     glbPath={currentJersey.glbPath}
                     position={[0, 0, 0]} 
                     rotation={[0, 0, 0]}
-                    scale={isVerySmall ? 1 : isMobile ? 1.2 : 1.8}
-                    isMobile={isMobile}
+                    scale={isMobile ? 1.2 : 1.8}
                   />
                 </Suspense>
               </Canvas>
             )}
             
-            {/* NAVIGATION ARROWS */}
-            <IconButton
-              onClick={prevJersey}
-              sx={{
-                position: 'absolute',
-                left: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                bgcolor: 'rgba(255,255,255,0.9)',
-                color: 'black',
-                '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
-                zIndex: 10,
-                width: isVerySmall ? 32 : 40,
-                height: isVerySmall ? 32 : 40,
-                boxShadow: 2
-              }}
-            >
-              <ArrowBackIos fontSize="small" />
-            </IconButton>
-            
-            <IconButton
-              onClick={nextJersey}
-              sx={{
-                position: 'absolute',
-                right: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                bgcolor: 'rgba(255,255,255,0.9)',
-                color: 'black',
-                '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
-                zIndex: 10,
-                width: isVerySmall ? 32 : 40,
-                height: isVerySmall ? 32 : 40,
-                boxShadow: 2
-              }}
-            >
-              <ArrowForwardIos fontSize="small" />
-            </IconButton>
+            {modelsLoaded && (
+              <>
+                <IconButton
+                  onClick={prevJersey}
+                  sx={{
+                    position: 'absolute',
+                    left: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    bgcolor: 'rgba(255,255,255,0.8)',
+                    color: 'black',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
+                    zIndex: 1,
+                    width: 40,
+                    height: 40,
+                    boxShadow: 2
+                  }}
+                >
+                  <ArrowBackIos fontSize="small" />
+                </IconButton>
+                
+                <IconButton
+                  onClick={nextJersey}
+                  sx={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    bgcolor: 'rgba(255,255,255,0.8)',
+                    color: 'black',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
+                    zIndex: 1,
+                    width: 40,
+                    height: 40,
+                    boxShadow: 2
+                  }}
+                >
+                  <ArrowForwardIos fontSize="small" />
+                </IconButton>
+              </>
+            )}
           </Box>
         </Grid>
 
-        {/* PRODUCT DETAILS */}
-        <Grid item xs={12} md={6}>
+        {/* Product Details Section */}
+        <Grid item xs={12} md={6} order={isMobile ? 1 : 0}>
           <Box sx={{ 
             maxWidth: 500, 
             mx: 'auto',
-            px: isVerySmall ? 1 : 2,
-            mt: isMobile ? 2 : 0
+            px: isMobile ? 2 : 0,
+            mt: isMobile ? 4 : 0
           }}>
             <Typography 
-              variant={isVerySmall ? "h6" : isMobile ? "h5" : "h4"} 
+              variant={isMobile ? "h5" : "h4"} 
               component="h2" 
               gutterBottom 
               fontWeight={600}
               sx={{ 
-                mb: 2,
+                fontFamily: 'Inter, Arial, sans-serif',
+                mb: 3,
                 textAlign: isMobile ? 'center' : 'left'
               }}
             >
@@ -449,11 +318,11 @@ export default function JerseyCarousel() {
             </Typography>
             
             <Typography 
-              variant={isVerySmall ? "h6" : isMobile ? "h5" : "h4"} 
+              variant={isMobile ? "h6" : "h5"} 
               sx={{ 
-                mb: 3, 
+                mb: 4, 
                 fontWeight: 700,
-                color: 'primary.main',
+                fontFamily: 'Inter, Arial, sans-serif',
                 textAlign: isMobile ? 'center' : 'left'
               }}
             >
@@ -463,8 +332,9 @@ export default function JerseyCarousel() {
             <Typography 
               variant="body1" 
               sx={{ 
-                mb: 3, 
-                lineHeight: 1.6,
+                mb: 4, 
+                lineHeight: 1.8,
+                fontFamily: 'Inter, Arial, sans-serif',
                 color: 'text.secondary',
                 textAlign: isMobile ? 'center' : 'left'
               }}
@@ -472,13 +342,14 @@ export default function JerseyCarousel() {
               {currentJersey.description}
             </Typography>
 
-            {/* GENDER SELECTION */}
-            <FormControl component="fieldset" sx={{ mb: 3, width: '100%' }}>
+            {/* Gender Selection */}
+            <FormControl component="fieldset" sx={{ mb: 4, width: '100%' }}>
               <FormLabel component="legend">
                 <Typography 
                   variant="subtitle1" 
                   fontWeight={600} 
                   sx={{ 
+                    fontFamily: 'Inter, Arial, sans-serif',
                     mb: 1,
                     textAlign: isMobile ? 'center' : 'left'
                   }}
@@ -496,17 +367,17 @@ export default function JerseyCarousel() {
                     value="male"
                     control={<Radio size="small" />}
                     label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
                         <Male fontSize="small" /> Male
                       </Box>
                     }
-                    sx={{ mr: 2 }}
+                    sx={{ mr: 3 }}
                   />
                   <FormControlLabel
                     value="female"
                     control={<Radio size="small" />}
                     label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
                         <Female fontSize="small" /> Female
                       </Box>
                     }
@@ -515,13 +386,14 @@ export default function JerseyCarousel() {
               </Box>
             </FormControl>
 
-            {/* SIZE SELECTION */}
-            <Box sx={{ mb: 4 }}>
+            {/* Size Selection */}
+            <Box sx={{ mb: 5 }}>
               <Typography 
                 variant="subtitle1" 
                 fontWeight={600} 
                 sx={{ 
                   mb: 2,
+                  fontFamily: 'Inter, Arial, sans-serif',
                   textAlign: isMobile ? 'center' : 'left'
                 }}
               >
@@ -538,7 +410,8 @@ export default function JerseyCarousel() {
                       sx={{
                         py: 1,
                         fontWeight: 600,
-                        minWidth: 'auto'
+                        fontFamily: 'Inter, Arial, sans-serif',
+                        borderRadius: 1
                       }}
                     >
                       {size}
@@ -548,20 +421,23 @@ export default function JerseyCarousel() {
               </Grid>
             </Box>
 
-            {/* ADD TO CART */}
-            <Box sx={{ px: isMobile ? 2 : 0 }}>
+            {/* Add to Cart Button */}
+            <Box sx={{ px: isMobile ? 4 : 0 }}>
               <Button
                 variant="contained"
                 size="large"
                 fullWidth
+                disabled={!modelsLoaded}
                 sx={{
                   py: 2,
                   fontSize: '1rem',
                   fontWeight: 600,
+                  borderRadius: 1,
+                  fontFamily: 'Inter, Arial, sans-serif',
                   textTransform: 'none'
                 }}
               >
-                Add to Cart
+                {modelsLoaded ? 'Add to Cart' : 'Loading...'}
               </Button>
             </Box>
           </Box>
