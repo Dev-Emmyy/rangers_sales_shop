@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState} from 'react';
 import {
   AppBar,
   Toolbar,
@@ -9,20 +9,13 @@ import {
   Badge,
   Container,
   InputBase,
-  alpha,
   styled,
   Slide,
-  Zoom,
-  Paper,
-  Fade
 } from '@mui/material';
 import {
   Search as SearchIcon,
   ShoppingCart as CartIcon,
-  Menu as MenuIcon,
-  SportsFootball as JerseyIcon,
   Close as CloseIcon,
-  FlashOn as FlashIcon
 } from '@mui/icons-material';
 import Image from 'next/image';
 
@@ -241,63 +234,12 @@ const DopeNavbar = () => {
             </Box>
           </Box>
 
-          {/* Desktop Search */}
-          <Box sx={{ 
-            display: { xs: 'none', md: 'flex' }, 
-            flex: 1, 
-            justifyContent: 'center',
-            maxWidth: '500px',
-            mx: 4,
-          }}>
-            <GlowingSearch>
-              <SearchIconWrapper>
-                <SearchIcon sx={{ color: 'rgba(255,255,255,0.8)' }} />
-              </SearchIconWrapper>
-              <StyledInputBase
-                placeholder="Search premium jerseys..."
-                inputProps={{ 'aria-label': 'search' }}
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                endAdornment={
-                  searchValue && (
-                    <IconButton 
-                      size="small" 
-                      onClick={() => setSearchValue('')}
-                      sx={{ color: 'rgba(255,255,255,0.8)', mr: 1 }}
-                    >
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  )
-                }
-              />
-            </GlowingSearch>
-          </Box>
-
           {/* Action Icons */}
           <Box sx={{ 
             display: 'flex', 
             alignItems: 'center', 
             gap: 2,
           }}>
-            
-            {/* Mobile Search */}
-            <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-              <FloatingIcon
-                onClick={toggleSearch}
-                sx={{
-                  '&:hover': {
-                    '& .MuiSvgIcon-root': {
-                      transform: 'rotate(90deg)',
-                    },
-                  },
-                }}
-              >
-                <SearchIcon sx={{ 
-                  color: '#fff', 
-                  transition: 'transform 0.3s ease',
-                }} />
-              </FloatingIcon>
-            </Box>
 
             {/* Shopping Cart */}
             <FloatingIcon
