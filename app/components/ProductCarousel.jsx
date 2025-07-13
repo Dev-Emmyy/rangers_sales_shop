@@ -12,7 +12,8 @@ import {
   Container,
   IconButton,
   useMediaQuery,
-  useTheme
+  useTheme,
+  CircularProgress
 } from '@mui/material';
 import {
   ArrowBackIos,
@@ -24,32 +25,58 @@ import React, { useState, useRef, Suspense, useMemo, useEffect } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-// Note: This component requires @mui/material and @mui/icons-material
-// Install with: npm install @mui/material @mui/icons-material
 
-// AGGRESSIVE PRELOADING - This is the speed fix
+// AGGRESSIVE PRELOADING SYSTEM
 const modelCache = new Map();
+const loadingPromises = new Map();
 const modelPaths = [
   "/Rangers_FC_Jersey_Red.glb",
   "/Rangers_FC_Jersey_White.glb"
 ];
 
-// Preload models immediately - ONLY ON CLIENT SIDE
-const preloadModels = async () => {
-  // Only run on client side
+// Preload models with better error handling and progress tracking
+const preloadModels = async (onProgress) => {
   if (typeof window === 'undefined') return;
   
   const loader = new GLTFLoader();
+  let loadedCount = 0;
   
   const promises = modelPaths.map(async (path) => {
-    if (!modelCache.has(path)) {
-      try {
-        const gltf = await loader.loadAsync(path);
-        modelCache.set(path, gltf.scene.clone());
-      } catch (error) {
-        console.error(`Failed to preload ${path}:`, error);
-      }
+    if (modelCache.has(path)) {
+      loadedCount++;
+      onProgress?.(loadedCount / modelPaths.length);
+      return;
     }
+    
+    if (loadingPromises.has(path)) {
+      return loadingPromises.get(path);
+    }
+    
+    const promise = loader.loadAsync(path).then((gltf) => {
+      const scene = gltf.scene.clone();
+      // Optimize the model
+      scene.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = false;
+          child.receiveShadow = false;
+          // Reduce geometry complexity on mobile
+          if (child.geometry) {
+            child.geometry.computeBoundingSphere();
+          }
+        }
+      });
+      modelCache.set(path, scene);
+      loadedCount++;
+      onProgress?.(loadedCount / modelPaths.length);
+      return scene;
+    }).catch((error) => {
+      console.error(`Failed to preload ${path}:`, error);
+      loadedCount++;
+      onProgress?.(loadedCount / modelPaths.length);
+    });
+    
+    loadingPromises.set(path, promise);
+    return promise;
   });
   
   await Promise.all(promises);
@@ -58,21 +85,23 @@ const preloadModels = async () => {
 function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
   const meshRef = useRef();
   
-  // Use cached model if available - THIS IS THE SPEED SECRET
+  // Use cached model with fallback
   const scene = useMemo(() => {
     if (modelCache.has(glbPath)) {
       return modelCache.get(glbPath).clone();
     }
     
-    // Fallback to regular loading if not cached
+    // If not cached, load normally (should be rare after preloading)
     const gltf = useLoader(GLTFLoader, glbPath);
-    modelCache.set(glbPath, gltf.scene.clone());
-    return gltf.scene;
+    const clonedScene = gltf.scene.clone();
+    modelCache.set(glbPath, clonedScene);
+    return clonedScene;
   }, [glbPath]);
   
-  useFrame((state) => {
+  // Smoother animation with frame rate optimization
+  useFrame((state, delta) => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += 0.005;
+      meshRef.current.rotation.y += delta * 0.3; // Use delta for consistent speed
     }
   });
 
@@ -87,12 +116,22 @@ function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
   );
 }
 
+// Better loading fallback
 function JerseyFallback() {
   return (
-    <mesh>
-      <boxGeometry args={[1, 1.5, 0.1]} />
-      <meshStandardMaterial color="#e0e0e0" />
-    </mesh>
+    <Box sx={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      height: '100%',
+      gap: 2
+    }}>
+      <CircularProgress size={40} />
+      <Typography variant="body2" color="text.secondary">
+        Loading 3D Model...
+      </Typography>
+    </Box>
   );
 }
 
@@ -121,10 +160,19 @@ export default function JerseyCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedGender, setSelectedGender] = useState('male');
   const [selectedSize, setSelectedSize] = useState('M');
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
 
-  // Start preloading on client side
+  // Start preloading immediately with progress tracking
   useEffect(() => {
-    preloadModels();
+    const loadModels = async () => {
+      await preloadModels((progress) => {
+        setLoadingProgress(progress);
+      });
+      setModelsLoaded(true);
+    };
+    
+    loadModels();
   }, []);
 
   const currentJersey = jerseyData[currentIndex];
@@ -140,7 +188,7 @@ export default function JerseyCarousel() {
   return (
     <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
       <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
-        {/* 3D Model Section - SPEED OPTIMIZED */}
+        {/* 3D Model Section - PERFORMANCE OPTIMIZED */}
         <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
           <Box sx={{ 
             position: 'relative', 
@@ -148,75 +196,106 @@ export default function JerseyCarousel() {
             width: '100%',
             display: 'flex',
             justifyContent: 'center',
-            alignItems: 'center'
+            alignItems: 'center',
+            bgcolor: 'background.default',
+            borderRadius: 2
           }}>
-            <Canvas style={{
-              width: '100%',
-              height: '100%',
-              margin: '0 auto'
-            }}
-            >
-              <PerspectiveCamera makeDefault position={[0, 0, 5]} />
-              <OrbitControls 
-                enableZoom={true} 
-                enablePan={false} 
-                enableRotate={!isMobile}
-                dampingFactor={0.1}
-                enableDamping={true}
-              />
-              <ambientLight intensity={0.6} />
-              <directionalLight position={[10, 10, 5]} intensity={1.2} />
-              <pointLight position={[-10, -10, -10]} intensity={0.4} />
-              
-              <Suspense fallback={<JerseyFallback />}>
-                <JerseyModel 
-                  glbPath={currentJersey.glbPath}
-                  position={[0, 0, 0]} 
-                  rotation={[0, 0, 0]}
-                  scale={isMobile ? 1.5 : 2}
+            {!modelsLoaded ? (
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center',
+                gap: 2
+              }}>
+                <CircularProgress variant="determinate" value={loadingProgress * 100} size={60} />
+                <Typography variant="h6" color="text.secondary">
+                  Loading 3D Models...
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {Math.round(loadingProgress * 100)}% complete
+                </Typography>
+              </Box>
+            ) : (
+              <Canvas 
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  margin: '0 auto'
+                }}
+                performance={{ min: 0.1, max: 1 }}
+                dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
+              >
+                <PerspectiveCamera makeDefault position={[0, 0, 5]} />
+                <OrbitControls 
+                  enableZoom={!isMobile} // Disable zoom on mobile for better performance
+                  enablePan={false} 
+                  enableRotate={!isMobile}
+                  dampingFactor={0.05}
+                  enableDamping={true}
+                  maxPolarAngle={Math.PI / 2}
+                  minPolarAngle={Math.PI / 2}
                 />
-              </Suspense>
-            </Canvas>
+                
+                {/* Optimized lighting */}
+                <ambientLight intensity={0.4} />
+                <directionalLight position={[5, 10, 5]} intensity={0.8} />
+                
+                <Suspense fallback={null}>
+                  <JerseyModel 
+                    glbPath={currentJersey.glbPath}
+                    position={[0, 0, 0]} 
+                    rotation={[0, 0, 0]}
+                    scale={isMobile ? 1.2 : 1.8}
+                  />
+                </Suspense>
+              </Canvas>
+            )}
             
-            <IconButton
-              onClick={prevJersey}
-              sx={{
-                position: 'absolute',
-                left: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                bgcolor: 'rgba(0,0,0,0.1)',
-                color: 'black',
-                '&:hover': { bgcolor: 'rgba(0,0,0,0.2)' },
-                zIndex: 1,
-                width: 40,
-                height: 40
-              }}
-            >
-              <ArrowBackIos fontSize="small" />
-            </IconButton>
-            
-            <IconButton
-              onClick={nextJersey}
-              sx={{
-                position: 'absolute',
-                right: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                bgcolor: 'rgba(0,0,0,0.1)',
-                color: 'black',
-                '&:hover': { bgcolor: 'rgba(0,0,0,0.2)' },
-                zIndex: 1,
-                width: 40,
-                height: 40
-              }}
-            >
-              <ArrowForwardIos fontSize="small" />
-            </IconButton>
+            {modelsLoaded && (
+              <>
+                <IconButton
+                  onClick={prevJersey}
+                  sx={{
+                    position: 'absolute',
+                    left: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    bgcolor: 'rgba(255,255,255,0.8)',
+                    color: 'black',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
+                    zIndex: 1,
+                    width: 40,
+                    height: 40,
+                    boxShadow: 2
+                  }}
+                >
+                  <ArrowBackIos fontSize="small" />
+                </IconButton>
+                
+                <IconButton
+                  onClick={nextJersey}
+                  sx={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    bgcolor: 'rgba(255,255,255,0.8)',
+                    color: 'black',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
+                    zIndex: 1,
+                    width: 40,
+                    height: 40,
+                    boxShadow: 2
+                  }}
+                >
+                  <ArrowForwardIos fontSize="small" />
+                </IconButton>
+              </>
+            )}
           </Box>
         </Grid>
 
-        {/* Product Details Section - UNCHANGED */}
+        {/* Product Details Section */}
         <Grid item xs={12} md={6} order={isMobile ? 1 : 0}>
           <Box sx={{ 
             maxWidth: 500, 
@@ -348,6 +427,7 @@ export default function JerseyCarousel() {
                 variant="contained"
                 size="large"
                 fullWidth
+                disabled={!modelsLoaded}
                 sx={{
                   py: 2,
                   fontSize: '1rem',
@@ -357,7 +437,7 @@ export default function JerseyCarousel() {
                   textTransform: 'none'
                 }}
               >
-                Add to Cart
+                {modelsLoaded ? 'Add to Cart' : 'Loading...'}
               </Button>
             </Box>
           </Box>
