@@ -82,7 +82,7 @@ const preloadModels = async (onProgress) => {
   await Promise.all(promises);
 };
 
-function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
+function JerseyModel({ glbPath, position, rotation, scale = 1, userRotation = { x: 0, y: 0 } }) {
   const meshRef = useRef();
   
   // Use cached model with fallback
@@ -98,10 +98,11 @@ function JerseyModel({ glbPath, position, rotation, scale = 1 }) {
     return clonedScene;
   }, [glbPath]);
   
-  // Smoother animation with frame rate optimization
+  // Apply user rotation and auto-rotation
   useFrame((state, delta) => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += delta * 0.3; // Use delta for consistent speed
+      meshRef.current.rotation.y = userRotation.y + (state.clock.elapsedTime * 0.1); // Slow auto-rotation + user control
+      meshRef.current.rotation.x = userRotation.x;
     }
   });
 
@@ -135,59 +136,68 @@ function JerseyFallback() {
   );
 }
 
-// Custom hook for swipe/drag functionality
-const useSwipeGesture = (onSwipeLeft, onSwipeRight, threshold = 50) => {
-  const [startX, setStartX] = useState(0);
-  const [currentX, setCurrentX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+// Custom hook for 3D model rotation (vertical only)
+const use3DRotation = () => {
+  const [rotation, setRotation] = useState({ x: 0, y: 0 });
+  const [isRotating, setIsRotating] = useState(false);
+  const [lastPosition, setLastPosition] = useState({ x: 0, y: 0 });
 
-  const handleStart = (clientX) => {
-    setStartX(clientX);
-    setCurrentX(clientX);
-    setIsDragging(true);
+  const handleStart = (clientX, clientY) => {
+    setIsRotating(true);
+    setLastPosition({ x: clientX, y: clientY });
   };
 
-  const handleMove = (clientX) => {
-    if (!isDragging) return;
-    setCurrentX(clientX);
+  const handleMove = (clientX, clientY) => {
+    if (!isRotating) return;
+    
+    const deltaY = clientY - lastPosition.y;
+    
+    setRotation(prev => ({
+      x: Math.max(-Math.PI / 3, Math.min(Math.PI / 3, prev.x - deltaY * 0.01)), // Limit vertical rotation
+      y: prev.y // Keep horizontal rotation unchanged
+    }));
+    
+    setLastPosition({ x: clientX, y: clientY });
   };
 
   const handleEnd = () => {
-    if (!isDragging) return;
-    
-    const deltaX = currentX - startX;
-    
-    if (Math.abs(deltaX) > threshold) {
-      if (deltaX > 0) {
-        onSwipeRight();
-      } else {
-        onSwipeLeft();
-      }
-    }
-    
-    setIsDragging(false);
-    setStartX(0);
-    setCurrentX(0);
+    setIsRotating(false);
   };
 
   const mouseHandlers = {
-    onMouseDown: (e) => handleStart(e.clientX),
-    onMouseMove: (e) => handleMove(e.clientX),
+    onMouseDown: (e) => {
+      e.preventDefault();
+      handleStart(e.clientX, e.clientY);
+    },
+    onMouseMove: (e) => {
+      e.preventDefault();
+      handleMove(e.clientX, e.clientY);
+    },
     onMouseUp: handleEnd,
     onMouseLeave: handleEnd,
   };
 
   const touchHandlers = {
-    onTouchStart: (e) => handleStart(e.touches[0].clientX),
-    onTouchMove: (e) => handleMove(e.touches[0].clientX),
+    onTouchStart: (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleStart(touch.clientX, touch.clientY);
+    },
+    onTouchMove: (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleMove(touch.clientX, touch.clientY);
+    },
     onTouchEnd: handleEnd,
   };
 
   return {
-    ...mouseHandlers,
-    ...touchHandlers,
-    isDragging,
-    dragProgress: isDragging ? (currentX - startX) / threshold : 0
+    rotation,
+    isRotating,
+    handlers: {
+      ...mouseHandlers,
+      ...touchHandlers
+    }
   };
 };
 
@@ -241,8 +251,8 @@ export default function JerseyCarousel() {
     setCurrentIndex((prev) => (prev - 1 + jerseyData.length) % jerseyData.length);
   };
 
-  // Swipe gesture handlers
-  const swipeHandlers = useSwipeGesture(nextJersey, prevJersey, 50);
+  // 3D rotation controls
+  const { rotation, isRotating, handlers: rotationHandlers } = use3DRotation();
 
   return (
     <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
@@ -258,12 +268,12 @@ export default function JerseyCarousel() {
             alignItems: 'center',
             bgcolor: 'background.default',
             borderRadius: 2,
-            cursor: swipeHandlers.isDragging ? 'grabbing' : 'grab',
+            cursor: isRotating ? 'grabbing' : 'grab',
             userSelect: 'none',
-            touchAction: 'pan-y', // Allow vertical scrolling but prevent horizontal
+            touchAction: 'none', // Prevent all default touch behaviors
             overflow: 'hidden'
           }}
-          {...swipeHandlers}
+          {...rotationHandlers}
           >
             {!modelsLoaded ? (
               <Box sx={{ 
@@ -285,11 +295,7 @@ export default function JerseyCarousel() {
                 style={{
                   width: '100%',
                   height: '100%',
-                  margin: '0 auto',
-                  transform: swipeHandlers.isDragging ? 
-                    `translateX(${Math.min(Math.max(swipeHandlers.dragProgress * 20, -20), 20)}px)` : 
-                    'none',
-                  transition: swipeHandlers.isDragging ? 'none' : 'transform 0.3s ease'
+                  margin: '0 auto'
                 }}
                 performance={{ min: 0.1, max: 1 }}
                 dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
@@ -300,13 +306,7 @@ export default function JerseyCarousel() {
               >
                 <PerspectiveCamera makeDefault position={[0, 0, 5]} />
                 <OrbitControls 
-                  enableZoom={!isMobile && !swipeHandlers.isDragging} 
-                  enablePan={false} 
-                  enableRotate={!isMobile && !swipeHandlers.isDragging}
-                  dampingFactor={0.05}
-                  enableDamping={true}
-                  maxPolarAngle={Math.PI / 2}
-                  minPolarAngle={Math.PI / 2}
+                  enabled={false} // Disable OrbitControls to use our custom rotation
                 />
                 
                 {/* Optimized lighting */}
@@ -319,12 +319,13 @@ export default function JerseyCarousel() {
                     position={[0, 0, 0]} 
                     rotation={[0, 0, 0]}
                     scale={isMobile ? 1.2 : 1.8}
+                    userRotation={rotation}
                   />
                 </Suspense>
               </Canvas>
             )}
             
-            {/* Swipe instruction overlay */}
+            {/* Rotation instruction overlay */}
             {modelsLoaded && (
               <Box sx={{
                 position: 'absolute',
@@ -341,7 +342,7 @@ export default function JerseyCarousel() {
                 opacity: 0.8,
                 zIndex: 10
               }}>
-                {isMobile ? 'Swipe left/right to change jerseys' : 'Drag left/right to change jerseys'}
+                {isMobile ? 'Touch and drag up/down to tilt jersey' : 'Click and drag up/down to tilt jersey'}
               </Box>
             )}
             
