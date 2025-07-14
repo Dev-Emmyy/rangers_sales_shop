@@ -254,297 +254,322 @@ export default function JerseyCarousel() {
   const { rotation, isDragging, handlers, resetRotation } = useJerseyRotation();
 
   return (
-    <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
-      <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
-        {/* 3D Model Section - FIXED FOR MOBILE CENTERING */}
-        <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
+    <Container maxWidth="xl" sx={{ py: isMobile ? 2 : 4, mt : 7 }}>
+      <Box sx={{ 
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        width: '100%'
+      }}>
+        
+        {/* 3D Model Section - Full width on desktop, optimized for mobile */}
+        <Box sx={{ 
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'center',
+          mb: isMobile ? 3 : 4,
+
+        }}>
           <Box sx={{ 
+            
+            position: 'relative',
+            height: isMobile ? '70vh' : '80vh', // Bigger on mobile, takes more screen space
             width: '100%',
+            maxWidth: isMobile ? '100%' : '100%', // Full width on both
             display: 'flex',
             justifyContent: 'center',
-            px: isMobile ? 2 : 0, // Add padding on mobile
-          }}>
+            alignItems: 'center',
+            bgcolor: 'background.default',
+            borderRadius: isMobile ? 1 : 2,
+            cursor: isDragging ? 'grabbing' : 'grab',
+            userSelect: 'none',
+            touchAction: 'none',
+            overflow: 'hidden',
+            mx: isMobile ? 1 : 0, // Small margin on mobile
+          }}
+          {...handlers}
+          >
+          {!modelsLoaded ? (
             <Box sx={{ 
-              position: 'relative', 
-              height: isMobile ? 400 : 600,
-              width: isMobile ? '100%' : 600, // Fixed width on desktop, full width on mobile
-              maxWidth: '100%',
-              display: 'flex',
-              justifyContent: 'center',
+              display: 'flex', 
+              flexDirection: 'column', 
               alignItems: 'center',
-              bgcolor: 'background.default',
-              borderRadius: 2,
-              cursor: isDragging ? 'grabbing' : 'grab',
-              userSelect: 'none',
-              touchAction: 'none', // Prevent all default touch actions
-              overflow: 'hidden'
-            }}
-            {...handlers}
+              gap: 2
+            }}>
+              <CircularProgress variant="determinate" value={loadingProgress * 100} size={isMobile ? 50 : 60} />
+              <Typography variant={isMobile ? "body1" : "h6"} color="text.secondary">
+                Loading 3D Models...
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {Math.round(loadingProgress * 100)}% complete
+              </Typography>
+            </Box>
+          ) : (
+            <Canvas 
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+              }}
+              performance={{ min: 0.1, max: 1 }}
+              dpr={isMobile ? 1 : 2}
+              onCreated={({ gl }) => {
+                gl.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+              }}
             >
-            {!modelsLoaded ? (
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center',
-                gap: 2
-              }}>
-                <CircularProgress variant="determinate" value={loadingProgress * 100} size={60} />
-                <Typography variant="h6" color="text.secondary">
-                  Loading 3D Models...
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {Math.round(loadingProgress * 100)}% complete
-                </Typography>
-              </Box>
-            ) : (
-              <Canvas 
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'block', // Changed from margin: '0 auto' to display: 'block'
-                }}
-                performance={{ min: 0.1, max: 1 }}
-                dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
-                onCreated={({ gl }) => {
-                  // Prevent context menu on right click
-                  gl.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+              <PerspectiveCamera 
+                makeDefault 
+                position={[0, 0, isMobile ? 5 : 6]} 
+                fov={isMobile ? 50 : 45}
+              />
+              <OrbitControls 
+                enabled={false}
+              />
+              
+              {/* Optimized lighting */}
+              <ambientLight intensity={0.4} />
+              <directionalLight position={[5, 10, 5]} intensity={0.8} />
+              
+              <Suspense fallback={null}>
+                <JerseyModel 
+                  glbPath={currentJersey.glbPath}
+                  position={[0, isMobile ? 0 : -0.5, 0]} 
+                  rotation={[0, 0, 0]}
+                  scale={isMobile ? 2 : 2.2} 
+                  manualRotation={rotation}
+                />
+              </Suspense>
+            </Canvas>
+          )}
+          
+          {/* Rotation instruction overlay */}
+          {modelsLoaded && (
+            <Box sx={{
+              position: 'absolute',
+              bottom: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              color: 'white',
+              px: 2,
+              py: 1,
+              borderRadius: 1,
+              fontSize: isMobile ? '0.8rem' : '0.9rem',
+              pointerEvents: 'none',
+              opacity: 0.9,
+              zIndex: 10
+            }}>
+              {isMobile ? 'Swipe to rotate jersey' : 'Drag to rotate jersey'}
+            </Box>
+          )}
+          
+          {modelsLoaded && (
+            <>
+              <IconButton
+                onClick={prevJersey}
+                sx={{
+                  position: 'absolute',
+                  left: isMobile ? 16 : 24,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  color: 'black',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
+                  zIndex: 1,
+                  width: isMobile ? 48 : 56,
+                  height: isMobile ? 48 : 56,
+                  boxShadow: 3
                 }}
               >
-                <PerspectiveCamera makeDefault position={[0, 0, 5]} />
-                <OrbitControls 
-                  enabled={false} // Disable OrbitControls to use manual rotation
-                />
-                
-                {/* Optimized lighting */}
-                <ambientLight intensity={0.4} />
-                <directionalLight position={[5, 10, 5]} intensity={0.8} />
-                
-                <Suspense fallback={null}>
-                  <JerseyModel 
-                    glbPath={currentJersey.glbPath}
-                    position={[0, 0, 0]} 
-                    rotation={[0, 0, 0]}
-                    scale={isMobile ? 1.2 : 1.8}
-                    manualRotation={rotation}
-                  />
-                </Suspense>
-              </Canvas>
-            )}
-            
-            {/* Rotation instruction overlay */}
-            {modelsLoaded && (
-              <Box sx={{
-                position: 'absolute',
-                bottom: 16,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                color: 'white',
-                px: 2,
-                py: 1,
-                borderRadius: 1,
-                fontSize: '0.75rem',
-                pointerEvents: 'none',
-                opacity: 0.8,
-                zIndex: 10
-              }}>
-                {isMobile ? 'Swipe to rotate jersey' : 'Drag to rotate jersey'}
-              </Box>
-            )}
-            
-            {modelsLoaded && (
-              <>
-                <IconButton
-                  onClick={prevJersey}
-                  sx={{
-                    position: 'absolute',
-                    left: 8,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    bgcolor: 'rgba(255,255,255,0.8)',
-                    color: 'black',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
-                    zIndex: 1,
-                    width: 40,
-                    height: 40,
-                    boxShadow: 2
-                  }}
-                >
-                  <ArrowBackIos fontSize="small" />
-                </IconButton>
-                
-                <IconButton
-                  onClick={nextJersey}
-                  sx={{
-                    position: 'absolute',
-                    right: 8,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    bgcolor: 'rgba(255,255,255,0.8)',
-                    color: 'black',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' },
-                    zIndex: 1,
-                    width: 40,
-                    height: 40,
-                    boxShadow: 2
-                  }}
-                >
-                  <ArrowForwardIos fontSize="small" />
-                </IconButton>
-              </>
-            )}
-                      </Box>
-          </Box>
-        </Grid>
+                <ArrowBackIos fontSize={isMobile ? "medium" : "large"} />
+              </IconButton>
+              
+              <IconButton
+                onClick={nextJersey}
+                sx={{
+                  position: 'absolute',
+                  right: isMobile ? 16 : 24,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  color: 'black',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
+                  zIndex: 1,
+                  width: isMobile ? 48 : 56,
+                  height: isMobile ? 48 : 56,
+                  boxShadow: 3
+                }}
+              >
+                <ArrowForwardIos fontSize={isMobile ? "medium" : "large"} />
+              </IconButton>
+            </>
+          )}
+         </Box>
+        </Box>
 
-        {/* Product Details Section */}
-        <Grid item xs={12} md={6} order={isMobile ? 1 : 0}>
+        {/* Product Details Section - Below the 3D model */}
+        <Box sx={{ 
+          width: '100%',
+          maxWidth: isMobile ? '100%' : 800,
+          px: isMobile ? 2 : 4,
+        }}>
           <Box sx={{ 
-            maxWidth: 500, 
-            mx: 'auto',
-            px: isMobile ? 2 : 0,
-            mt: isMobile ? 4 : 0
+            textAlign: 'center',
+            mb: 4
           }}>
             <Typography 
-              variant={isMobile ? "h5" : "h4"} 
-              component="h2" 
+              variant={isMobile ? "h4" : "h3"} 
+              component="h1" 
               gutterBottom 
               fontWeight={600}
               sx={{ 
                 fontFamily: 'Inter, Arial, sans-serif',
-                mb: 3,
-                textAlign: isMobile ? 'center' : 'left'
+                mb: 2,
               }}
             >
               {currentJersey.name}
             </Typography>
             
             <Typography 
-              variant={isMobile ? "h6" : "h5"} 
+              variant={isMobile ? "h5" : "h4"} 
               sx={{ 
-                mb: 4, 
+                mb: 3, 
                 fontWeight: 700,
                 fontFamily: 'Inter, Arial, sans-serif',
-                textAlign: isMobile ? 'center' : 'left'
+                color: 'primary.main'
               }}
             >
               ₦{currentJersey.price.toLocaleString()}
             </Typography>
 
             <Typography 
-              variant="body1" 
+              variant={isMobile ? "body1" : "h6"} 
               sx={{ 
                 mb: 4, 
-                lineHeight: 1.8,
+                lineHeight: 1.6,
                 fontFamily: 'Inter, Arial, sans-serif',
                 color: 'text.secondary',
-                textAlign: isMobile ? 'center' : 'left'
+                maxWidth: 600,
+                mx: 'auto'
               }}
             >
               {currentJersey.description}
             </Typography>
+          </Box>
 
+          <Grid container spacing={isMobile ? 3 : 4} justifyContent="center">
             {/* Gender Selection */}
-            <FormControl component="fieldset" sx={{ mb: 4, width: '100%' }}>
-              <FormLabel component="legend">
+            <Grid item xs={12} sm={6}>
+              <FormControl component="fieldset" sx={{ width: '100%' }}>
+                <FormLabel component="legend">
+                  <Typography 
+                    variant="subtitle1" 
+                    fontWeight={600} 
+                    sx={{ 
+                      fontFamily: 'Inter, Arial, sans-serif',
+                      mb: 2,
+                      textAlign: 'center'
+                    }}
+                  >
+                    Gender
+                  </Typography>
+                </FormLabel>
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <RadioGroup
+                    row
+                    value={selectedGender}
+                    onChange={(e) => setSelectedGender(e.target.value)}
+                  >
+                    <FormControlLabel
+                      value="male"
+                      control={<Radio size="small" />}
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
+                          <Male fontSize="small" /> Male
+                        </Box>
+                      }
+                      sx={{ mr: 3 }}
+                    />
+                    <FormControlLabel
+                      value="female"
+                      control={<Radio size="small" />}
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
+                          <Female fontSize="small" /> Female
+                        </Box>
+                      }
+                    />
+                  </RadioGroup>
+                </Box>
+              </FormControl>
+            </Grid>
+
+            {/* Size Selection */}
+            <Grid item xs={12} sm={6}>
+              <Box sx={{ width: '100%' }}>
                 <Typography 
                   variant="subtitle1" 
                   fontWeight={600} 
                   sx={{ 
+                    mb: 2,
                     fontFamily: 'Inter, Arial, sans-serif',
-                    mb: 1,
-                    textAlign: isMobile ? 'center' : 'left'
+                    textAlign: 'center'
                   }}
                 >
-                  Gender
+                  Size
                 </Typography>
-              </FormLabel>
-              <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start' }}>
-                <RadioGroup
-                  row
-                  value={selectedGender}
-                  onChange={(e) => setSelectedGender(e.target.value)}
-                >
-                  <FormControlLabel
-                    value="male"
-                    control={<Radio size="small" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
-                        <Male fontSize="small" /> Male
-                      </Box>
-                    }
-                    sx={{ mr: 3 }}
-                  />
-                  <FormControlLabel
-                    value="female"
-                    control={<Radio size="small" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: 'Inter, Arial, sans-serif' }}>
-                        <Female fontSize="small" /> Female
-                      </Box>
-                    }
-                  />
-                </RadioGroup>
+                <Grid container spacing={1} justifyContent="center">
+                  {sizes.map((size) => (
+                    <Grid item xs={4} sm={2} key={size}>
+                      <Button
+                        variant={selectedSize === size ? 'contained' : 'outlined'}
+                        onClick={() => setSelectedSize(size)}
+                        fullWidth
+                        size="small"
+                        sx={{
+                          py: 1,
+                          fontWeight: 600,
+                          fontFamily: 'Inter, Arial, sans-serif',
+                          borderRadius: 1,
+                          minWidth: 'auto'
+                        }}
+                      >
+                        {size}
+                      </Button>
+                    </Grid>
+                  ))}
+                </Grid>
               </Box>
-            </FormControl>
+            </Grid>
+          </Grid>
 
-            {/* Size Selection */}
-            <Box sx={{ mb: 5 }}>
-              <Typography 
-                variant="subtitle1" 
-                fontWeight={600} 
-                sx={{ 
-                  mb: 2,
-                  fontFamily: 'Inter, Arial, sans-serif',
-                  textAlign: isMobile ? 'center' : 'left'
-                }}
-              >
-                Size
-              </Typography>
-              <Grid container spacing={1} justifyContent={isMobile ? 'center' : 'flex-start'}>
-                {sizes.map((size) => (
-                  <Grid item xs={4} sm={2} key={size}>
-                    <Button
-                      variant={selectedSize === size ? 'contained' : 'outlined'}
-                      onClick={() => setSelectedSize(size)}
-                      fullWidth
-                      size="small"
-                      sx={{
-                        py: 1,
-                        fontWeight: 600,
-                        fontFamily: 'Inter, Arial, sans-serif',
-                        borderRadius: 1
-                      }}
-                    >
-                      {size}
-                    </Button>
-                  </Grid>
-                ))}
-              </Grid>
-            </Box>
-
-            {/* Add to Cart Button */}
-            <Box sx={{ px: isMobile ? 4 : 0 }}>
-              <Button
-                variant="contained"
-                size="large"
-                fullWidth
-                disabled={!modelsLoaded}
-                sx={{
-                  py: 2,
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  borderRadius: 1,
-                  fontFamily: 'Inter, Arial, sans-serif',
-                  textTransform: 'none'
-                }}
-              >
-                {modelsLoaded ? 'Add to Cart' : 'Loading...'}
-              </Button>
-            </Box>
+          {/* Add to Cart Button */}
+          <Box sx={{ 
+            mt: 4, 
+            display: 'flex', 
+            justifyContent: 'center',
+            px: isMobile ? 2 : 8
+          }}>
+            <Button
+              variant="contained"
+              size="large"
+              disabled={!modelsLoaded}
+              sx={{
+                py: 2,
+                px: 6,
+                fontSize: isMobile ? '1rem' : '1.1rem',
+                fontWeight: 600,
+                borderRadius: 2,
+                fontFamily: 'Inter, Arial, sans-serif',
+                textTransform: 'none',
+                minWidth: isMobile ? 200 : 250
+              }}
+            >
+              {modelsLoaded ? 'Add to Cart' : 'Loading...'}
+            </Button>
           </Box>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
     </Container>
   );
 }

@@ -128,7 +128,7 @@ const DopeNavbar = () => {
         top: 0,
         left: 0,
         right: 0,
-        zIndex: 1300, // Higher than default to ensure it stays above everything
+        zIndex: 1300,
         background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)', // Safari support
