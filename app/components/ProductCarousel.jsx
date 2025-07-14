@@ -82,7 +82,7 @@ const preloadModels = async (onProgress) => {
   await Promise.all(promises);
 };
 
-function JerseyModel({ glbPath, position, rotation, scale = 1, userRotation = { x: 0, y: 0 } }) {
+function JerseyModel({ glbPath, position, rotation, scale = 1, manualRotation = 0 }) { 
   const meshRef = useRef();
   
   // Use cached model with fallback
@@ -98,11 +98,10 @@ function JerseyModel({ glbPath, position, rotation, scale = 1, userRotation = { 
     return clonedScene;
   }, [glbPath]);
   
-  // Apply user rotation and auto-rotation
-  useFrame((state, delta) => {
+  // Apply manual rotation instead of auto-rotation
+  useFrame(() => {
     if (meshRef.current) {
-      meshRef.current.rotation.y = userRotation.y + (state.clock.elapsedTime * 0.1); // Slow auto-rotation + user control
-      meshRef.current.rotation.x = userRotation.x;
+      meshRef.current.rotation.y = manualRotation;
     }
   });
 
@@ -136,42 +135,43 @@ function JerseyFallback() {
   );
 }
 
-// Custom hook for 3D model rotation (vertical only)
-const use3DRotation = () => {
-  const [rotation, setRotation] = useState({ x: 0, y: 0 });
-  const [isRotating, setIsRotating] = useState(false);
-  const [lastPosition, setLastPosition] = useState({ x: 0, y: 0 });
+// Custom hook for jersey rotation control
+const useJerseyRotation = () => {
+  const [rotation, setRotation] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [lastX, setLastX] = useState(0);
 
-  const handleStart = (clientX, clientY) => {
-    setIsRotating(true);
-    setLastPosition({ x: clientX, y: clientY });
+  const handleStart = (clientX) => {
+    setStartX(clientX);
+    setLastX(clientX);
+    setIsDragging(true);
   };
 
-  const handleMove = (clientX, clientY) => {
-    if (!isRotating) return;
+  const handleMove = (clientX) => {
+    if (!isDragging) return;
     
-    const deltaY = clientY - lastPosition.y;
+    const deltaX = clientX - lastX;
+    const rotationSpeed = 0.01; // Adjust sensitivity
     
-    setRotation(prev => ({
-      x: Math.max(-Math.PI / 3, Math.min(Math.PI / 3, prev.x - deltaY * 0.01)), // Limit vertical rotation
-      y: prev.y // Keep horizontal rotation unchanged
-    }));
-    
-    setLastPosition({ x: clientX, y: clientY });
+    setRotation(prev => prev + deltaX * rotationSpeed);
+    setLastX(clientX);
   };
 
   const handleEnd = () => {
-    setIsRotating(false);
+    setIsDragging(false);
+    setStartX(0);
+    setLastX(0);
   };
 
   const mouseHandlers = {
     onMouseDown: (e) => {
       e.preventDefault();
-      handleStart(e.clientX, e.clientY);
+      handleStart(e.clientX);
     },
     onMouseMove: (e) => {
       e.preventDefault();
-      handleMove(e.clientX, e.clientY);
+      handleMove(e.clientX);
     },
     onMouseUp: handleEnd,
     onMouseLeave: handleEnd,
@@ -180,24 +180,23 @@ const use3DRotation = () => {
   const touchHandlers = {
     onTouchStart: (e) => {
       e.preventDefault();
-      const touch = e.touches[0];
-      handleStart(touch.clientX, touch.clientY);
+      handleStart(e.touches[0].clientX);
     },
     onTouchMove: (e) => {
       e.preventDefault();
-      const touch = e.touches[0];
-      handleMove(touch.clientX, touch.clientY);
+      handleMove(e.touches[0].clientX);
     },
     onTouchEnd: handleEnd,
   };
 
   return {
     rotation,
-    isRotating,
+    isDragging,
     handlers: {
       ...mouseHandlers,
       ...touchHandlers
-    }
+    },
+    resetRotation: () => setRotation(0)
   };
 };
 
@@ -251,30 +250,37 @@ export default function JerseyCarousel() {
     setCurrentIndex((prev) => (prev - 1 + jerseyData.length) % jerseyData.length);
   };
 
-  // 3D rotation controls
-  const { rotation, isRotating, handlers: rotationHandlers } = use3DRotation();
+  // Jersey rotation control
+  const { rotation, isDragging, handlers, resetRotation } = useJerseyRotation();
 
   return (
     <Container maxWidth="xl" sx={{ py: isMobile ? 4 : 8 }}>
       <Grid container spacing={isMobile ? 2 : 6} alignItems="center">
-        {/* 3D Model Section - PERFORMANCE OPTIMIZED WITH SWIPE */}
+        {/* 3D Model Section - FIXED FOR MOBILE CENTERING */}
         <Grid item xs={12} md={6} order={isMobile ? 0 : 0}>
           <Box sx={{ 
-            position: 'relative', 
-            height: isMobile ? 400 : 600,
             width: '100%',
             display: 'flex',
             justifyContent: 'center',
-            alignItems: 'center',
-            bgcolor: 'background.default',
-            borderRadius: 2,
-            cursor: isRotating ? 'grabbing' : 'grab',
-            userSelect: 'none',
-            touchAction: 'none', // Prevent all default touch behaviors
-            overflow: 'hidden'
-          }}
-          {...rotationHandlers}
-          >
+            px: isMobile ? 2 : 0, // Add padding on mobile
+          }}>
+            <Box sx={{ 
+              position: 'relative', 
+              height: isMobile ? 400 : 600,
+              width: isMobile ? '100%' : 600, // Fixed width on desktop, full width on mobile
+              maxWidth: '100%',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              bgcolor: 'background.default',
+              borderRadius: 2,
+              cursor: isDragging ? 'grabbing' : 'grab',
+              userSelect: 'none',
+              touchAction: 'none', // Prevent all default touch actions
+              overflow: 'hidden'
+            }}
+            {...handlers}
+            >
             {!modelsLoaded ? (
               <Box sx={{ 
                 display: 'flex', 
@@ -295,7 +301,7 @@ export default function JerseyCarousel() {
                 style={{
                   width: '100%',
                   height: '100%',
-                  margin: '0 auto'
+                  display: 'block', // Changed from margin: '0 auto' to display: 'block'
                 }}
                 performance={{ min: 0.1, max: 1 }}
                 dpr={isMobile ? 1 : 2} // Reduce pixel ratio on mobile
@@ -306,7 +312,7 @@ export default function JerseyCarousel() {
               >
                 <PerspectiveCamera makeDefault position={[0, 0, 5]} />
                 <OrbitControls 
-                  enabled={false} // Disable OrbitControls to use our custom rotation
+                  enabled={false} // Disable OrbitControls to use manual rotation
                 />
                 
                 {/* Optimized lighting */}
@@ -319,7 +325,7 @@ export default function JerseyCarousel() {
                     position={[0, 0, 0]} 
                     rotation={[0, 0, 0]}
                     scale={isMobile ? 1.2 : 1.8}
-                    userRotation={rotation}
+                    manualRotation={rotation}
                   />
                 </Suspense>
               </Canvas>
@@ -342,7 +348,7 @@ export default function JerseyCarousel() {
                 opacity: 0.8,
                 zIndex: 10
               }}>
-                {isMobile ? 'Touch and drag up/down to tilt jersey' : 'Click and drag up/down to tilt jersey'}
+                {isMobile ? 'Swipe to rotate jersey' : 'Drag to rotate jersey'}
               </Box>
             )}
             
@@ -387,6 +393,7 @@ export default function JerseyCarousel() {
                 </IconButton>
               </>
             )}
+                      </Box>
           </Box>
         </Grid>
 
